@@ -3,7 +3,7 @@ import { z } from 'zod';
 const envSchema = z.object({
   PORT: z.coerce.number().default(3000),
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
-  DATABASE_PATH: z.string().default('./data/arena.db'),
+  DATABASE_PATH: z.string().default(process.env.NODE_ENV === 'production' ? '/tmp/arena.db' : './data/arena.db'),
   ANTHROPIC_API_KEY: z.string().default(''),
   ANTHROPIC_MODEL: z.string().default('claude-sonnet-4-6'),
   WHATSAPP_VERIFY_TOKEN: z.string().default('arena-bot-verify-token'),

@@ -17,7 +17,7 @@ export async function createServer() {
   });
 
   // Middleware de erro global
-  app.setErrorHandler(async (error, _request, reply) => {
+  app.setErrorHandler(async (error: Error, _request, reply) => {
     logger.error({ error: error.message, stack: error.stack }, 'Erro não tratado');
     return reply.code(500).send({ error: 'Erro interno do servidor' });
   });
