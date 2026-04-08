@@ -1,8 +1,51 @@
-# Arena Beach Bot
+# WhatsApp Booking Bot
 
-Chatbot WhatsApp para reservas de quadras de areia, powered by Claude AI.
+**Chatbot inteligente para reservas de quadras de areia via WhatsApp**, powered by Claude AI (Anthropic).
 
-## Arquitetura
+[![Demo Online](https://img.shields.io/badge/Demo-Testar_Agora-25D366?style=for-the-badge&logo=whatsapp&logoColor=white)](https://whatsapp-booking-bot-apgn.onrender.com)
+
+![Node.js](https://img.shields.io/badge/Node.js-339933?style=flat&logo=node.js&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=flat&logo=typescript&logoColor=white)
+![Claude AI](https://img.shields.io/badge/Claude_AI-Tool_Use-CC785C?style=flat)
+![SQLite](https://img.shields.io/badge/SQLite-003B57?style=flat&logo=sqlite&logoColor=white)
+![Fastify](https://img.shields.io/badge/Fastify-000000?style=flat&logo=fastify&logoColor=white)
+
+---
+
+## O que este projeto faz?
+
+Um centro esportivo com quadras de areia recebe dezenas de mensagens por dia no WhatsApp: reservas, cancelamentos, dúvidas sobre horários e preços. Hoje, uma pessoa faz esse atendimento manualmente.
+
+Este bot automatiza esse fluxo com IA. O aluno conversa naturalmente pelo WhatsApp e o bot:
+
+- Consulta disponibilidade em tempo real
+- Faz reservas com validação completa (conflitos, horários, duração)
+- Cancela e reagenda reservas
+- Responde dúvidas sobre o centro (preços, horários, regras, equipamentos)
+- Escala para um atendente humano quando necessário
+
+### Teste agora
+
+**[Clique aqui para testar a demo online](https://whatsapp-booking-bot-apgn.onrender.com)** (pode levar ~30s para acordar na primeira vez)
+
+Experimente mensagens como:
+- `Oi, quero reservar uma quadra`
+- `Qual o horário de funcionamento?`
+- `Vocês tem bola e raquete?`
+- `Quero cancelar minha reserva`
+
+---
+
+## Decisão de Arquitetura
+
+### Por que Claude API com Tool Use (e não agentes)?
+
+O domínio é bem delimitado: reservar, cancelar, reagendar, consultar. As ações são previsíveis e finitas. Usar agentes autônomos adicionaria complexidade, latência e custo sem ganho proporcional.
+
+A abordagem escolhida:
+- **Claude interpreta** a intenção e extrai entidades (data, horário, quadra)
+- **Tools executam** lógica de negócio determinística (sem alucinação)
+- **Loop simples:** mensagem → Claude → tool call → resultado → Claude → resposta
 
 ```
 ┌─────────────┐     ┌──────────────┐     ┌───────────────┐     ┌──────────┐
@@ -11,8 +54,8 @@ Chatbot WhatsApp para reservas de quadras de areia, powered by Claude AI.
 │  Cloud API  │     └──────────────┘     └───────┬───────┘     └──────────┘
 └─────────────┘                                  │
                                           ┌──────┴──────┐
-                                          │ Tool        │
-                                          │ Handlers    │
+                                          │    Tools    │
+                                          │  (8 funcs)  │
                                           └──────┬──────┘
                                                  │
                                     ┌────────────┼────────────┐
@@ -21,219 +64,208 @@ Chatbot WhatsApp para reservas de quadras de areia, powered by Claude AI.
                               │Student │  │Reserva- │  │  Court   │
                               │Service │  │tion Svc │  │ Service  │
                               └────┬───┘  └────┬────┘  └────┬─────┘
-                                   │           │            │
-                                   └───────────┼────────────┘
-                                               │
-                                        ┌──────┴──────┐
-                                        │   SQLite    │
-                                        │  (Drizzle)  │
-                                        └─────────────┘
+                                   └────────────┼────────────┘
+                                         ┌──────┴──────┐
+                                         │   SQLite    │
+                                         └─────────────┘
 ```
 
-**Abordagem:** Claude API com Tool Use (não agentes). O LLM interpreta a intenção, extrai entidades e chama ferramentas determinísticas para executar ações no banco de dados.
+### As 8 ferramentas do bot
 
-## Pré-requisitos
+| Ferramenta | O que faz |
+|-----------|-----------|
+| `consultar_disponibilidade` | Verifica slots livres por data/quadra |
+| `fazer_reserva` | Cria reserva com validação completa |
+| `cancelar_reserva` | Cancela com verificação de prazo (2h antes) |
+| `reagendar_reserva` | Cancela + recria (transacional) |
+| `minhas_reservas` | Lista reservas do aluno |
+| `sugerir_alternativas` | Sugere horários próximos ao desejado |
+| `atualizar_cadastro` | Salva nome do aluno |
+| `escalar_para_humano` | Handoff para atendente |
 
-- Node.js 20+
-- Chave de API do Anthropic (Claude)
-
-## Instalação
-
-```bash
-# 1. Instalar dependências
-npm install
-
-# 2. Configurar variáveis de ambiente
-cp .env.example .env
-# Edite o .env e adicione sua ANTHROPIC_API_KEY
-
-# 3. Popular banco com quadras iniciais
-npm run seed
-
-# 4. Iniciar em modo desenvolvimento
-npm run dev
-```
-
-## Uso Local (sem WhatsApp)
-
-O endpoint `/chat` permite testar sem integração com WhatsApp:
-
-```bash
-# Primeira mensagem — bot vai pedir o nome
-curl -X POST http://localhost:3000/chat \
-  -H "Content-Type: application/json" \
-  -d '{"phone": "5511999990000", "message": "Oi, quero reservar uma quadra"}'
-
-# Informar nome
-curl -X POST http://localhost:3000/chat \
-  -H "Content-Type: application/json" \
-  -d '{"phone": "5511999990000", "message": "Meu nome é João Silva"}'
-
-# Pedir horário
-curl -X POST http://localhost:3000/chat \
-  -H "Content-Type: application/json" \
-  -d '{"phone": "5511999990000", "message": "Quero reservar amanhã às 18h, 1 hora"}'
-
-# Confirmar reserva
-curl -X POST http://localhost:3000/chat \
-  -H "Content-Type: application/json" \
-  -d '{"phone": "5511999990000", "message": "Pode confirmar na Beach 1"}'
-
-# Consultar reservas
-curl -X POST http://localhost:3000/chat \
-  -H "Content-Type: application/json" \
-  -d '{"phone": "5511999990000", "message": "Quais são minhas reservas?"}'
-
-# Cancelar
-curl -X POST http://localhost:3000/chat \
-  -H "Content-Type: application/json" \
-  -d '{"phone": "5511999990000", "message": "Quero cancelar minha reserva"}'
-```
-
-## Integração com WhatsApp
-
-### 1. Criar App no Meta for Developers
-
-1. Acesse [developers.facebook.com](https://developers.facebook.com)
-2. Crie um novo App do tipo "Business"
-3. Adicione o produto "WhatsApp"
-4. Obtenha:
-   - **Access Token** (temporário para teste, permanente para produção)
-   - **Phone Number ID**
-   - **Verify Token** (você define)
-
-### 2. Configurar Webhook
-
-1. Exponha o servidor na internet (use [ngrok](https://ngrok.com) para desenvolvimento):
-   ```bash
-   ngrok http 3000
-   ```
-2. No painel do Meta, configure o webhook:
-   - **URL:** `https://seu-dominio.ngrok.io/webhook`
-   - **Verify Token:** o mesmo do `.env`
-   - **Campos:** `messages`
-
-### 3. Variáveis de ambiente
-
-```env
-WHATSAPP_VERIFY_TOKEN=seu_token_de_verificacao
-WHATSAPP_ACCESS_TOKEN=seu_access_token_do_meta
-WHATSAPP_PHONE_NUMBER_ID=seu_phone_number_id
-```
-
-## Testes
-
-```bash
-npm test
-```
-
-## Estrutura do Projeto
-
-```
-src/
-├── config.ts                  # Configuração centralizada (env + defaults)
-├── logger.ts                  # Logger (pino)
-├── index.ts                   # Entry point
-├── server.ts                  # Fastify server
-├── domain/
-│   └── rules.ts               # Tipos, regras de negócio, validações
-├── database/
-│   ├── schema.ts              # Schema Drizzle ORM
-│   ├── connection.ts          # Conexão SQLite + criação de tabelas
-│   └── seed.ts                # Dados iniciais (quadras)
-├── services/
-│   ├── student.service.ts     # CRUD de alunos
-│   ├── court.service.ts       # Consulta de quadras
-│   ├── reservation.service.ts # Lógica de reservas (core)
-│   └── conversation.service.ts # Log de conversas
-├── ai/
-│   ├── system-prompt.ts       # Prompt do sistema para Claude
-│   ├── tools.ts               # Definições de ferramentas
-│   ├── tool-handlers.ts       # Execução das ferramentas
-│   └── assistant.ts           # Orquestrador (loop de tool use)
-└── whatsapp/
-    ├── types.ts               # Tipos da API do WhatsApp
-    ├── client.ts              # Cliente para enviar mensagens
-    └── webhook.ts             # Webhook + endpoint /chat
-```
+---
 
 ## Fluxos de Conversa
 
 ### Reserva completa
 ```
 Aluno: Oi, quero reservar uma quadra
-Bot:   Olá! Vou te ajudar com a reserva. Qual é o seu nome?
+Bot:   Olá! Seja bem-vindo ao Arena Beach Bot! Qual é o seu nome?
 Aluno: João Silva
 Bot:   Prazer, João! Para qual data e horário você gostaria de reservar?
-Aluno: Amanhã às 18h
-Bot:   Encontrei disponibilidade para amanhã (08/04) às 18h:
-       • Beach 1 (Beach Tennis)
-       • Beach 2 (Beach Tennis)
-       • Beach 3 (Futevôlei)
-       Qual quadra você prefere? E a duração será 1h ou 2h?
-Aluno: Beach 1, 1 hora
+Aluno: Amanhã às 18h, 1 hora
+Bot:   Encontrei disponibilidade para amanhã às 18h:
+       • Beach 1 • Beach 2 • Beach 3 • Beach 4
+       Qual quadra você prefere?
+Aluno: Beach 1
 Bot:   Confirmo a reserva:
-       📋 Beach 1 | 08/04 | 18:00 às 19:00 | 1h | R$ 120,00
+       📋 Beach 1 | 08/04 | 18:00–19:00 | 1h | R$ 120,00
        Posso confirmar?
 Aluno: Sim!
-Bot:   Reserva confirmada! ✅
-       ID: #42 | Beach 1 | 08/04 às 18:00-19:00
-       Bom jogo, João!
+Bot:   Reserva confirmada! ✅ ID: #1 | Beach 1 | 08/04 às 18:00-19:00
 ```
 
-### Horário indisponível
+### Conflito de horário
 ```
 Aluno: Quero reservar a Beach 1 amanhã às 18h
-Bot:   Infelizmente a Beach 1 está ocupada amanhã às 18h.
+Bot:   A Beach 1 está ocupada nesse horário.
        Alternativas próximas:
        • Beach 2 às 18:00
        • Beach 1 às 17:00
        • Beach 1 às 19:00
-       Alguma dessas funciona para você?
+       Alguma dessas funciona?
 ```
 
 ### Cancelamento
 ```
 Aluno: Preciso cancelar minha reserva
 Bot:   Suas reservas ativas:
-       1. #42 — Beach 1 | 08/04 | 18:00-19:00
-       2. #43 — Beach 3 | 10/04 | 20:00-21:00
-       Qual deseja cancelar?
-Aluno: A primeira
-Bot:   Confirmo o cancelamento da reserva #42 (Beach 1, 08/04 às 18h)?
+       1. #1 — Beach 1 | 08/04 | 18:00-19:00
+       Confirmo o cancelamento?
 Aluno: Sim
-Bot:   Reserva #42 cancelada com sucesso.
+Bot:   Reserva #1 cancelada com sucesso. ✅
 ```
 
-## Configuração do Centro Esportivo
+---
 
-Todas as configurações ficam em variáveis de ambiente (`.env`):
+## Validações implementadas
+
+- Horário dentro do funcionamento (06:00–22:00)
+- Duração entre 1h e 2h
+- Conflito de horário na mesma quadra (impede dupla reserva)
+- Cancelamento apenas até 2h antes do horário
+- Apenas o dono pode cancelar/reagendar sua reserva
+- Identificação automática do aluno por telefone
+- Confirmação obrigatória antes de ações críticas
+- Interpretação de datas relativas ("amanhã", "sexta")
+- Sugestão de alternativas quando horário indisponível
+
+---
+
+## Estrutura do Projeto
+
+```
+src/
+├── config.ts                    # Configuração centralizada (Zod)
+├── env.ts                       # Carregamento do .env
+├── logger.ts                    # Logger (Pino)
+├── index.ts                     # Entry point + seed automático
+├── server.ts                    # Servidor Fastify
+├── domain/
+│   └── rules.ts                 # Tipos, regras de negócio, validações puras
+├── database/
+│   ├── schema.ts                # Documentação do schema
+│   ├── connection.ts            # SQLite (sql.js) + helpers de query
+│   └── seed.ts                  # Dados iniciais
+├── services/
+│   ├── student.service.ts       # CRUD de alunos
+│   ├── court.service.ts         # Consulta de quadras
+│   ├── reservation.service.ts   # Lógica de reservas (core)
+│   └── conversation.service.ts  # Log de conversas
+├── ai/
+│   ├── system-prompt.ts         # System prompt com contexto dinâmico
+│   ├── tools.ts                 # Definição das 8 ferramentas (JSON Schema)
+│   ├── tool-handlers.ts         # Execução das ferramentas
+│   └── assistant.ts             # Orquestrador (loop de tool use + memória)
+└── whatsapp/
+    ├── types.ts                 # Tipos da WhatsApp Cloud API
+    ├── client.ts                # Cliente para envio de mensagens
+    └── webhook.ts               # Webhook + endpoint /chat + /admin
+```
+
+---
+
+## Como rodar localmente
+
+### Pré-requisitos
+- Node.js 20+
+- Chave de API da [Anthropic](https://console.anthropic.com)
+
+### Instalação
+
+```bash
+git clone https://github.com/igorcarrico/whatsapp-booking-bot.git
+cd whatsapp-booking-bot
+
+npm install
+
+cp .env.example .env
+# Edite o .env e adicione sua ANTHROPIC_API_KEY
+
+npm run seed
+npm run dev
+```
+
+Acesse **http://localhost:3000** para a interface de chat.
+
+### Testes
+
+```bash
+npm test   # 25 testes (regras de domínio, serviços, conflitos)
+```
+
+---
+
+## Integração com WhatsApp
+
+A arquitetura já está pronta para conectar com a **WhatsApp Business Cloud API** (Meta).
+
+### Configuração
+
+1. Crie um App em [developers.facebook.com](https://developers.facebook.com) (tipo Business)
+2. Adicione o produto WhatsApp e obtenha o Access Token e Phone Number ID
+3. Configure o webhook apontando para `https://seu-dominio/webhook`
+4. Adicione as variáveis no `.env`:
+
+```env
+WHATSAPP_VERIFY_TOKEN=seu_token
+WHATSAPP_ACCESS_TOKEN=seu_access_token
+WHATSAPP_PHONE_NUMBER_ID=seu_phone_number_id
+```
+
+---
+
+## Stack
+
+| Tecnologia | Uso |
+|-----------|-----|
+| **TypeScript** | Linguagem principal |
+| **Fastify** | Servidor HTTP (webhooks + API) |
+| **Claude API** | NLU + Tool Use (Anthropic) |
+| **SQLite (sql.js)** | Banco de dados (WASM, sem dependência nativa) |
+| **Pino** | Logging estruturado |
+| **Zod** | Validação de configuração |
+| **Vitest** | Testes |
+| **date-fns** | Manipulação de datas + fuso horário |
+
+---
+
+## Configuração do Centro Esportivo
 
 | Variável | Padrão | Descrição |
 |----------|--------|-----------|
 | `CENTER_NAME` | Arena Beach | Nome do centro |
-| `CENTER_ADDRESS` | Rua das Quadras, 100 | Endereço |
+| `CENTER_ADDRESS` | Rua das Quadras, 100 - São Paulo/SP | Endereço |
+| `CENTER_PHONE` | (11) 99999-0000 | Telefone |
 | `CENTER_OPEN_TIME` | 06:00 | Abertura |
 | `CENTER_CLOSE_TIME` | 22:00 | Fechamento |
-| `CENTER_PRICE_PER_HOUR` | 120 | Preço por hora |
+| `CENTER_PRICE_PER_HOUR` | 120 | Preço por hora (R$) |
 
-Para alterar quadras, edite o arquivo `src/database/seed.ts` e rode `npm run seed`.
+---
 
-## Limitações Atuais
+## Limitações e Próximos Passos
 
-- **Apenas mensagens de texto**: áudio, imagem e vídeo são ignorados
-- **Sem pagamento online**: pagamento é feito presencialmente
-- **Sem recorrência**: reservas fixas semanais precisam ser feitas individualmente
-- **Sem painel admin web**: gestão via banco de dados ou API REST
-- **Single-tenant**: uma instância por centro esportivo
+### Limitações atuais
+- Apenas mensagens de texto (áudio/imagem ignorados)
+- Sem pagamento online (pagamento presencial)
+- Sem reservas recorrentes ("todo sábado às 10h")
+- Sem painel administrativo web
 
-## Próximos Passos
-
-1. **Painel administrativo web** — React/Next.js para gestão de quadras, reservas e alunos
-2. **Pagamento online** — Integração com Stripe/Mercado Pago
-3. **Notificações** — Lembretes automáticos 1h antes da reserva
-4. **Reservas recorrentes** — "Todo sábado às 10h"
+### Roadmap
+1. **Painel admin web** — React/Next.js para gestão
+2. **Pagamento online** — Stripe ou Mercado Pago
+3. **Notificações** — Lembretes automáticos antes da reserva
+4. **Reservas recorrentes** — Agendamento semanal fixo
 5. **Mensagens de áudio** — Transcrição com Whisper
 6. **Multi-tenant** — Suporte a múltiplos centros esportivos
-7. **Métricas** — Dashboard de uso, taxa de ocupação, horários de pico
-8. **Deploy** — Docker + Railway/Fly.io para produção
+7. **Métricas** — Dashboard de ocupação e horários de pico
