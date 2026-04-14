@@ -10,6 +10,8 @@
 ![SQLite](https://img.shields.io/badge/SQLite-003B57?style=flat&logo=sqlite&logoColor=white)
 ![Fastify](https://img.shields.io/badge/Fastify-000000?style=flat&logo=fastify&logoColor=white)
 
+![Demo do bot](docs/demo_bot_arena.PNG)
+
 ---
 
 ## O que este projeto faz?
